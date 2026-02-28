@@ -1,28 +1,31 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { identifySchema } from "./schemas";
 import { identify } from "./service";
-import { AppError } from "./errors";
-import { ZodError } from "zod";
+import { logger } from "./logger";
 
 const router = Router();
 
 /**
  * POST /identify
  *
- * Receives { email?, phoneNumber? } and returns
- * the consolidated contact information.
+ * Receives { email?, phoneNumber? } and returns the consolidated
+ * contact information for that customer identity.
+ *
+ * Request body is validated with Zod. At least one of email or
+ * phoneNumber must be non-null.
  */
 router.post(
   "/identify",
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // ── Validate request body ──────────────────────────────────────
+      // ── Validate & sanitize input ──────────────────────────────────
       const parsed = identifySchema.safeParse(req.body);
 
       if (!parsed.success) {
         const messages = parsed.error.issues.map(
           (issue: { message: string }) => issue.message
         );
+        logger.warn({ body: req.body, errors: messages }, "Validation failed");
         res.status(400).json({
           error: "Validation failed",
           details: messages,
@@ -43,3 +46,4 @@ router.post(
 );
 
 export default router;
+

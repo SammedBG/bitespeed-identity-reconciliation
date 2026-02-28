@@ -1,30 +1,38 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Bitespeed Identity Reconciliation — Prisma Schema
+// Database: PostgreSQL
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+/// Represents a customer contact record.
+/// Multiple rows may belong to the same person, linked via linkedId.
+/// The oldest contact in a group is "primary"; all others are "secondary".
 model Contact {
   id             Int       @id @default(autoincrement())
-  phoneNumber    String?
-  email          String?
+  phoneNumber    String?   @db.VarChar(20)
+  email          String?   @db.VarChar(320)
   linkedId       Int?
-  linkPrecedence String    // "primary" or "secondary"
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  linkPrecedence String    @db.VarChar(10) // "primary" | "secondary"
+  createdAt      DateTime  @default(now()) @db.Timestamptz
+  updatedAt      DateTime  @updatedAt      @db.Timestamptz
+  deletedAt      DateTime? @db.Timestamptz
 
-  // Self-relation: a secondary contact points to its primary
-  linkedContact  Contact?  @relation("ContactLink", fields: [linkedId], references: [id])
+  // Self-relation: secondary → primary
+  linkedContact  Contact?  @relation("ContactLink", fields: [linkedId], references: [id], onDelete: SetNull)
   linkedContacts Contact[] @relation("ContactLink")
 
+  // Indexes for fast lookups
   @@index([email])
   @@index([phoneNumber])
   @@index([linkedId])
+
+  // Prevent exact duplicate rows (same email + phone + linkedId)
+  // This acts as an idempotency guard at the DB level
+  @@unique([email, phoneNumber, linkedId], name: "uq_contact_identity")
 }

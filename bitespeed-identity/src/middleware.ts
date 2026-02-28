@@ -3,45 +3,81 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
+import { logger } from "./logger";
 
-/**
- * Helmet — sets secure HTTP headers (XSS protection, HSTS, etc.)
- */
-export const helmetMiddleware = helmet();
-
-/**
- * CORS — allow all origins for this demo service.
- * In production, restrict to specific domains.
- */
-export const corsMiddleware = cors({
-  origin: "*",
-  methods: ["POST", "GET"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+// ─── Helmet — secure HTTP headers ──────────────────────────────────────────
+export const helmetMiddleware = helmet({
+  contentSecurityPolicy: config.NODE_ENV === "production" ? undefined : false,
+  crossOriginEmbedderPolicy: false,
 });
 
-/**
- * Rate limiter — prevents abuse / DDoS.
- */
+// ─── CORS ──────────────────────────────────────────────────────────────────
+export const corsMiddleware = cors({
+  origin: config.CORS_ORIGIN === "*" ? "*" : config.CORS_ORIGIN.split(","),
+  methods: ["POST", "GET", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  maxAge: 86400, // 24h preflight cache
+});
+
+// ─── Rate Limiter ──────────────────────────────────────────────────────────
 export const rateLimiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MINUTES * 60 * 1000,
   max: config.RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    error: "Too many requests, please try again later.",
+  message: { error: "Too many requests, please try again later." },
+  handler: (req, res, _next, options) => {
+    logger.warn(
+      { ip: req.ip, path: req.path },
+      "Rate limit exceeded"
+    );
+    res.status(options.statusCode).json(options.message);
   },
 });
 
-/**
- * Reject requests with bodies larger than expected.
- * Express's built-in json() parser has a default limit of 100kb,
- * but we further restrict it via this constant.
- */
+// ─── Body size limit constant ──────────────────────────────────────────────
 export const JSON_BODY_LIMIT = "10kb";
 
-/**
- * 404 handler — catch-all for undefined routes.
- */
+// ─── Request logger ────────────────────────────────────────────────────────
+export function requestLogger(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    logger.info(
+      {
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: duration,
+        ip: req.ip,
+      },
+      "request completed"
+    );
+  });
+  next();
+}
+
+// ─── Content-Type enforcement for POST ─────────────────────────────────────
+export function enforceJsonContentType(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  if (req.method === "POST" && !req.is("application/json")) {
+    res.status(415).json({
+      error: "Unsupported Media Type",
+      message: "Content-Type must be application/json",
+    });
+    return;
+  }
+  next();
+}
+
+// ─── 404 handler ───────────────────────────────────────────────────────────
 export function notFoundHandler(
   req: Request,
   res: Response,
@@ -53,10 +89,7 @@ export function notFoundHandler(
   });
 }
 
-/**
- * Global error handler — catches all unhandled errors.
- * Never leaks stack traces in production.
- */
+// ─── Global error handler ──────────────────────────────────────────────────
 export function globalErrorHandler(
   err: Error & { statusCode?: number; isOperational?: boolean },
   _req: Request,
@@ -66,15 +99,18 @@ export function globalErrorHandler(
   const statusCode = err.statusCode || 500;
   const isProduction = config.NODE_ENV === "production";
 
-  // Log the error for debugging
-  console.error(`[ERROR] ${err.message}`, {
-    statusCode,
-    stack: isProduction ? undefined : err.stack,
-    timestamp: new Date().toISOString(),
-  });
+  logger.error(
+    {
+      err,
+      statusCode,
+      isOperational: err.isOperational ?? false,
+    },
+    err.message
+  );
 
   res.status(statusCode).json({
     error: statusCode === 500 ? "Internal Server Error" : err.message,
     ...(isProduction ? {} : { stack: err.stack }),
   });
 }
+
