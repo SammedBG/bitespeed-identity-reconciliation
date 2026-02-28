@@ -6,7 +6,6 @@ A production-grade backend service that identifies and tracks customers across m
 > *(Replace with your deployed URL after hosting)*
 
 ---
-
 ## Table of Contents
 
 - [Problem Understanding](#problem-understanding)
