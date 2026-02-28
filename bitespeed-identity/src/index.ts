@@ -1,72 +1,78 @@
 import express from "express";
 import { config } from "./config";
+import { logger } from "./logger";
 import {
   helmetMiddleware,
   corsMiddleware,
   rateLimiter,
   JSON_BODY_LIMIT,
+  requestLogger,
+  enforceJsonContentType,
   notFoundHandler,
   globalErrorHandler,
 } from "./middleware";
 import routes from "./routes";
-import { prisma } from "./db";
+import { prisma, checkDatabaseConnection } from "./db";
 
-// ── Build Express app ──────────────────────────────────────────────────────
+// ─── Build Express app ─────────────────────────────────────────────────────
 const app = express();
 
-// ── Security & parsing middleware (order matters) ──────────────────────────
+// Disable x-powered-by header
+app.disable("x-powered-by");
+
+// Trust proxy (required for correct IP in rate limiter behind Render/nginx)
+app.set("trust proxy", 1);
+
+// ─── Security & parsing middleware (order matters) ─────────────────────────
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
 app.use(rateLimiter);
+app.use(requestLogger);
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(enforceJsonContentType);
 
-// Reject non-JSON content types on POST
-app.use((req, res, next) => {
-  if (
-    req.method === "POST" &&
-    !req.is("application/json")
-  ) {
-    res.status(415).json({
-      error: "Unsupported Media Type",
-      message: "Content-Type must be application/json",
-    });
-    return;
-  }
-  next();
+// ─── Health check (verifies DB connectivity) ───────────────────────────────
+app.get("/health", async (_req, res) => {
+  const dbOk = await checkDatabaseConnection();
+  const status = dbOk ? "ok" : "degraded";
+  const httpCode = dbOk ? 200 : 503;
+
+  res.status(httpCode).json({
+    status,
+    timestamp: new Date().toISOString(),
+    database: dbOk ? "connected" : "unreachable",
+    uptime: process.uptime(),
+  });
 });
 
-// ── Health check ───────────────────────────────────────────────────────────
-app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-// ── API routes ─────────────────────────────────────────────────────────────
+// ─── API routes ────────────────────────────────────────────────────────────
 app.use(routes);
 
-// ── 404 + global error handler (must be last) ─────────────────────────────
+// ─── 404 + global error handler (must be last) ────────────────────────────
 app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
-// ── Start server ───────────────────────────────────────────────────────────
+// ─── Start server ──────────────────────────────────────────────────────────
 const server = app.listen(config.PORT, () => {
-  console.log(
-    `[server] Identity Reconciliation service running on port ${config.PORT}`
+  logger.info(
+    { port: config.PORT, env: config.NODE_ENV },
+    "Identity Reconciliation service started"
   );
-  console.log(`[server] Environment: ${config.NODE_ENV}`);
 });
 
-// ── Graceful shutdown ──────────────────────────────────────────────────────
+// ─── Graceful shutdown ─────────────────────────────────────────────────────
 async function shutdown(signal: string): Promise<void> {
-  console.log(`\n[server] Received ${signal}. Shutting down gracefully...`);
+  logger.info({ signal }, "Shutting down gracefully...");
+
   server.close(async () => {
     await prisma.$disconnect();
-    console.log("[server] Database connection closed.");
+    logger.info("Database connection closed. Goodbye.");
     process.exit(0);
   });
 
   // Force exit after 10 seconds
   setTimeout(() => {
-    console.error("[server] Forced shutdown after timeout.");
+    logger.error("Forced shutdown after timeout");
     process.exit(1);
   }, 10_000);
 }
@@ -74,14 +80,14 @@ async function shutdown(signal: string): Promise<void> {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-// Catch unhandled rejections / uncaught exceptions
 process.on("unhandledRejection", (reason) => {
-  console.error("[server] Unhandled Rejection:", reason);
+  logger.error({ reason }, "Unhandled Rejection");
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("[server] Uncaught Exception:", err);
+  logger.fatal({ err }, "Uncaught Exception — shutting down");
   process.exit(1);
 });
 
 export default app;
+
