@@ -177,7 +177,7 @@ Returns `503` with `"database": "unreachable"` if PostgreSQL is down.
 
 ```bash
 # 1. Clone and install
-git clone <your-repo-url>
+git clone https://github.com/SammedBG/bitespeed-identity-reconciliation.git
 cd bitespeed-identity
 npm install
 
