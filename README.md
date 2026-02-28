@@ -2,7 +2,7 @@
 
 A production-grade backend service that identifies and tracks customers across multiple purchases made with different contact information (email/phone). Built for the Bitespeed Backend Task.
 
-**Live Endpoint:** https://bitespeed-identity-reconciliation-cr0u.onrender.com/health
+**Live Endpoint:** https://bitespeed-identity-reconciliation-cr0u.onrender.com/identify
 
 ---
 ## Table of Contents
