@@ -2,7 +2,7 @@
 
 A production-grade backend service that identifies and tracks customers across multiple purchases made with different contact information (email/phone). Built for the Bitespeed Backend Task.
 
-> **Live Endpoint:** `https://bitespeed-identity-reconciliation-cr0u.onrender.com` 
+**Live Endpoint:** `https://bitespeed-identity-reconciliation-cr0u.onrender.com` 
 
 ---
 ## Table of Contents
@@ -181,12 +181,16 @@ git clone <your-repo-url>
 cd bitespeed-identity
 npm install
 
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your PostgreSQL connection string
+# 2. Configure environment — create a .env file:
+#    DATABASE_URL="postgresql://user:password@localhost:5432/bitespeed"
+#    NODE_ENV=development
+#    PORT=3000
 
 # 3. Run migrations
+#    For local development (requires shadow DB access):
 npx prisma migrate dev --name init
+#    For hosted/remote databases (e.g. Render):
+#    npx prisma migrate deploy
 
 # 4. Build
 npm run build
